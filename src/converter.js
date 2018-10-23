@@ -57,14 +57,6 @@ function buildEnumType (context, attributeName, enumValues) {
 }
 
 function mapType (context, attributeDefinition, attributeName, buildingInputType) {
-  if (attributeDefinition.type === 'array') {
-    const elementType = mapType(context, attributeDefinition.items, attributeName, buildingInputType);
-    if (elementType === DROP_ATTRIBUTE_MARKER) {
-      return DROP_ATTRIBUTE_MARKER;
-    }
-    return GraphQLList(GraphQLNonNull(elementType));
-  }
-
   const enumValues = attributeDefinition.enum;
   if (enumValues) {
     if (attributeDefinition.type !== 'string') {
@@ -75,6 +67,7 @@ function mapType (context, attributeDefinition, attributeName, buildingInputType
     if (existingEnum) {
       return existingEnum;
     }
+
     return buildEnumType(context, attributeName, enumValues);
   }
 
@@ -94,45 +87,57 @@ function mapType (context, attributeDefinition, attributeName, buildingInputType
   return mapBasicAttributeType(attributeDefinition.type, attributeName);
 }
 
-function fieldsFromSchema (context, parentTypeName, schema, buildingInputType) {
-  if (isEmpty(schema.properties)) {
-    return {
-      _typesWithoutFieldsAreNotAllowed_: {
-        type: GraphQLString
-      }
-    };
+// Handles any custom object types. It will create a GraphQLInputObjectType/GraphQLObjectType, and
+// will map on all the properties of the object. Properties corresponding to arrays or object types
+// will recursively call objectFromSchema again, since there can be nested objects. The simpler types
+// will use mapType which doesn't need recursion
+function objectFromSchema (context, typeName, schema, buildingInputType) {
+  function getFields () {
+    let fields;
+    if (isEmpty(schema.properties)) {
+      fields = {
+        _typesWithoutFieldsAreNotAllowed_: {
+          type: GraphQLString
+        }
+      };
+    } else {
+      fields = mapValues(schema.properties, function (attributeDefinition, attributeName) {
+        const qualifiedAttributeName = `${typeName}.${attributeName}`;
+        let type;
+        if (attributeDefinition.type === 'array') {
+          const itemName = attributeDefinition.items.$ref ? qualifiedAttributeName : `${qualifiedAttributeName}Item`;
+          // TODO Is there a cleaner way to do that?
+          const elementType = ['array', 'object'].includes(attributeDefinition.items.type)
+            ? objectFromSchema(context, itemName, attributeDefinition.items, buildingInputType)
+            : mapType(context, attributeDefinition.items, itemName, buildingInputType);
+          if (elementType === DROP_ATTRIBUTE_MARKER) {
+            return {type: DROP_ATTRIBUTE_MARKER};
+          }
+          type = GraphQLList(GraphQLNonNull(elementType));
+        } else if (attributeDefinition.type === 'object') {
+          type = objectFromSchema(context, qualifiedAttributeName, attributeDefinition, buildingInputType);
+        } else {
+          type = mapType(context, attributeDefinition, qualifiedAttributeName, buildingInputType);
+        }
+        const modifiedType = includes(schema.required, attributeName) ? GraphQLNonNull(type) : type;
+        return {type: modifiedType};
+      });
+    }
+
+    return omitBy(fields, {type: DROP_ATTRIBUTE_MARKER});
   }
 
-  const fields = mapValues(schema.properties, function (attributeDefinition, attributeName) {
-    const qualifiedAttributeName = `${parentTypeName}.${attributeName}`;
-    let type;
-    if (attributeDefinition.type === 'object') {
-      const name = uppercamelcase(`${qualifiedAttributeName}${buildingInputType ? INPUT_SUFFIX : ''}`);
-      const fields = fieldsFromSchema(context, qualifiedAttributeName, attributeDefinition, buildingInputType);
-      type = buildingInputType
-        ? new GraphQLInputObjectType({name, fields})
-        : new GraphQLObjectType({name, fields});
-    } else {
-      type = mapType(context, attributeDefinition, qualifiedAttributeName, buildingInputType);
-    }
-    const modifiedType = includes(schema.required, attributeName) ? GraphQLNonNull(type) : type;
-    return {type: modifiedType};
-  });
-
-  const prunedFields = omitBy(fields, {type: DROP_ATTRIBUTE_MARKER});
-  return prunedFields;
+  const name = uppercamelcase(`${typeName}${buildingInputType ? INPUT_SUFFIX : ''}`);
+  // getFields need to be called lazily, since some types might not be available at the creation of
+  // the object (with circular refs for instance)
+  return buildingInputType
+    ? new GraphQLInputObjectType({name, fields: () => getFields()})
+    : new GraphQLObjectType({name, fields: () => getFields()});
 }
 
 function buildObjectType (context, typeName, schema) {
-  const output = new GraphQLObjectType({
-    name: typeName,
-    fields: () => fieldsFromSchema(context, typeName, schema)
-  });
-
-  const input = new GraphQLInputObjectType({
-    name: typeName + INPUT_SUFFIX,
-    fields: () => fieldsFromSchema(context, typeName, schema, true)
-  });
+  const output = objectFromSchema(context, typeName, schema);
+  const input = objectFromSchema(context, typeName, schema, true);
 
   return {input, output};
 }
@@ -147,6 +152,8 @@ function buildUnionType (context, typeName, schema) {
     }
   });
 
+  // There are no input union types in GraphQL
+  // https://github.com/facebook/graphql/issues/488
   return {output, input: undefined};
 }
 

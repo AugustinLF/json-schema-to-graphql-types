@@ -50,6 +50,7 @@ function makeSchemaForType (output, input) {
 }
 
 async function compareSchemas (test, schema, expectedSchema) {
+
   const introspection = await execute({
     schema,
     document: parse(introspectionQuery)
@@ -169,6 +170,44 @@ test('array attributes', async function (test) {
   input Array${INPUT_SUFFIX} {
     attribute: [Int!]
   }
+  `;
+
+  await testConversion(test, simpleType, 'Array', expectedType);
+});
+
+test('array of objects', async function (test) {
+  const simpleType = {
+    id: 'Array',
+    type: 'object',
+    properties: {
+      attribute: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            firstAttribute: {
+              type: 'integer'
+            }
+          }
+        }
+      }
+    }
+  };
+
+  const expectedType = `
+    type ArrayAttributeItem {
+      firstAttribute: Int
+    }
+    type Array {
+      attribute: [ArrayAttributeItem!]
+    }
+
+    input ArrayAttributeItem${INPUT_SUFFIX} {
+      firstAttribute: Int
+    }
+    input Array${INPUT_SUFFIX} {
+      attribute: [ArrayAttributeItem${INPUT_SUFFIX}!]
+    }
   `;
 
   await testConversion(test, simpleType, 'Array', expectedType);
@@ -660,6 +699,7 @@ test('map switch schemas to unions', async function (test) {
   await testConversion(test, childType, 'Child', expectedType, context);
 });
 
+// TODO this breaks the tests, since this file will be run twice
 module.exports = {
   compareSchemas
 };

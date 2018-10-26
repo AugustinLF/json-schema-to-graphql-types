@@ -547,7 +547,7 @@ test('Enumeration attribute with numeric keys', async function (test) {
   await testConversion(test, personType, 'Person', expectedType, context);
 });
 
-test('Enumeration attribute with unsupported type', async function (test) {
+test('Enumeration attribute with integer type', async function (test) {
   const personType = {
     id: 'Person',
     type: 'object',
@@ -558,10 +558,37 @@ test('Enumeration attribute with unsupported type', async function (test) {
       }
     }
   };
+  const expectedType = `
+  enum PersonAge {
+    VALUE_1, VALUE_2, VALUE_3
+  }
+  type Person {
+    age: PersonAge
+  }
+  input Person${INPUT_SUFFIX} {
+    age: PersonAge
+  }
+  `;
+
+  const context = newContext();
+  await testConversion(test, personType, 'Person', expectedType, context);
+});
+
+test('Enumeration attribute with unsupported type', async function (test) {
+  const personType = {
+    id: 'Person',
+    type: 'object',
+    properties: {
+      age: {
+        type: 'boolean',
+        enum: [false, true]
+      }
+    }
+  };
 
   const context = newContext();
   const assertion = testConversion(test, personType, 'Person', null, context);
-  await test.throws(assertion, 'The attribute Person.age not supported because only conversion of string based enumertions are implemented');
+  await test.throws(assertion, 'The attribute Person.age not supported because only conversion of string based enumerations are implemented');
 });
 
 test('Enumeration conversion function', async function (test) {

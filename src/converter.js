@@ -82,6 +82,9 @@ function getObjectFields (context, schema, typeName, buildingInputType) {
       const qualifiedAttributeName = `${typeName}.${attributeName}`;
       const type = mapType(context, attributeDefinition, qualifiedAttributeName, buildingInputType);
 
+      if (typeof type === 'symbol') {
+        console.log(qualifiedAttributeName)
+      }
       const modifiedType = includes(schema.required, attributeName) ? GraphQLNonNull(type) : type;
       return {type: modifiedType};
     }),
@@ -117,8 +120,8 @@ function mapType (context, attributeDefinition, attributeName, buildingInputType
   }
   const enumValues = attributeDefinition.enum;
   if (enumValues) {
-    if (attributeDefinition.type !== 'string') {
-      throw new Error(`The attribute ${attributeName} not supported because only conversion of string based enumertions are implemented`);
+    if (attributeDefinition.type !== 'string' && attributeDefinition.type !== 'integer') {
+      throw new Error(`The attribute ${attributeName} not supported because only conversion of string based enumerations are implemented`);
     }
 
     const existingEnum = context.enumTypes.get(attributeName);
